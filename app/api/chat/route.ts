@@ -32,7 +32,8 @@ export async function POST(req: Request) {
 
     const data = await response.json();
     return NextResponse.json({ message: data.choices[0].message.content });
-  } catch (error) {
+  } catch (err) {
+    console.error('API Error:', err);
     return NextResponse.json({ error: 'Failed to fetch response' }, { status: 500 });
   }
 }
