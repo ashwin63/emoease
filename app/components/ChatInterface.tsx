@@ -22,7 +22,7 @@ export default function ChatInterface({ onClose }: Props) {
     e.preventDefault();
     if (!input.trim()) return;
 
-    const userMessage = { role: 'user', content: input };
+    const userMessage: Message = { role: 'user', content: input };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
@@ -35,7 +35,8 @@ export default function ChatInterface({ onClose }: Props) {
       });
       
       const data = await response.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.message }]);
+      const assistantMessage: Message = { role: 'assistant', content: data.message };
+      setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
       console.error('Error:', error);
     } finally {
