@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 
 export default function ChatBubble() {
   const [isRecording, setIsRecording] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
 
@@ -20,10 +21,11 @@ export default function ChatBubble() {
           }
         };
 
-        recorder.onstop = () => {
+        recorder.onstop = async () => {
+          console.log('Recording stopped');
           const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-          // Here you can send the audioBlob to your API
-          console.log('Recording stopped, blob created:', audioBlob);
+          console.log('Audio blob created:', audioBlob);
+          await processAudio(audioBlob);
           setAudioChunks([]);
         };
 
@@ -36,12 +38,46 @@ export default function ChatBubble() {
     setupMediaRecorder();
   }, []);
 
+  const processAudio = async (audioBlob: Blob) => {
+    try {
+      setIsProcessing(true);
+      console.log('Starting audio processing...');
+      
+      const formData = new FormData();
+      formData.append('audio', audioBlob);
+
+      console.log('Sending audio to API...');
+      const response = await fetch('/api/transcribe', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+      console.log('API Response:', data);
+      
+      if (data.responseText) {
+        console.log('AI Response:', data.responseText);
+        // Use speech synthesis to speak the response
+        const utterance = new SpeechSynthesisUtterance(data.responseText);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
+    } catch (error) {
+      console.error('Error processing audio:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleBubbleClick = () => {
-    if (!mediaRecorder) return;
+    if (!mediaRecorder || isProcessing) return;
 
     if (isRecording) {
+      console.log('Stopping recording...');
       mediaRecorder.stop();
     } else {
+      console.log('Starting recording...');
       setAudioChunks([]);
       mediaRecorder.start();
     }
@@ -54,7 +90,7 @@ export default function ChatBubble() {
       <motion.div
         className="absolute -inset-8 rounded-full blur-3xl bg-blue-400 opacity-20"
         animate={{
-          scale: isRecording ? [1, 1.5, 1] : [1, 1.3, 1],
+          scale: isRecording ? [1, 1.5, 1] : isProcessing ? [1, 1.2, 1] : [1, 1.3, 1],
           opacity: isRecording ? [0.3, 0.1, 0.3] : [0.2, 0.1, 0.2],
         }}
         transition={{
@@ -68,7 +104,7 @@ export default function ChatBubble() {
       <motion.div 
         className="w-[200px] h-[200px] rounded-full relative z-10"
         animate={{
-          scale: isRecording ? [1, 1.1, 1] : [1, 1.05, 1],
+          scale: isRecording ? [1, 1.1, 1] : isProcessing ? [1, 1.03, 1] : [1, 1.05, 1],
         }}
         transition={{
           duration: isRecording ? 1.5 : 2,
