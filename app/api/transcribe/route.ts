@@ -69,6 +69,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ responseText });
   } catch (error) {
     console.error('API Error:', error);
-    return NextResponse.json({ error: 'Failed to process audio' | String(error) }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to process audio ${String(error)}' }, { status: 500 });
   }
 }
