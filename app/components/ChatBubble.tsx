@@ -1,13 +1,13 @@
 "use client";
 
 import { motion } from 'framer-motion';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export default function ChatBubble() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     const setupMediaRecorder = async () => {
@@ -21,22 +21,33 @@ export default function ChatBubble() {
         });
         
         const recorder = new MediaRecorder(stream, {
-          mimeType: 'audio/webm;codecs=opus'
+          mimeType: 'audio/webm'
         });
         
         recorder.ondataavailable = (e) => {
-          console.log('Data available:', e.data.size);
           if (e.data.size > 0) {
-            setAudioChunks(chunks => [...chunks, e.data]);
+            audioChunksRef.current.push(e.data);
+            console.log('Chunk added:', e.data.size);
           }
         };
 
         recorder.onstop = async () => {
           console.log('Recording stopped');
-          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-          console.log('Audio blob created:', audioBlob.size, audioBlob.type);
+          console.log('Number of chunks:', audioChunksRef.current.length);
+          
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          console.log('Final blob size:', audioBlob.size);
+          
+          // Test playback
+          const url = URL.createObjectURL(audioBlob);
+          const audio = new Audio(url);
+          audio.onloadedmetadata = () => {
+            console.log('Audio duration:', audio.duration);
+          };
+          audio.play();
+
           await processAudio(audioBlob);
-          setAudioChunks([]);
+          audioChunksRef.current = [];
         };
 
         setMediaRecorder(recorder);
@@ -51,21 +62,21 @@ export default function ChatBubble() {
   const processAudio = async (audioBlob: Blob) => {
     try {
       setIsProcessing(true);
-      console.log('Starting audio processing...', audioBlob.size);
-      
-      // For testing: Play the recorded audio
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      audio.play();
+      console.log('Processing audio blob:', audioBlob.size, audioBlob.type);
       
       const formData = new FormData();
-      formData.append('audio', audioBlob, 'audio.webm');
+      formData.append('audio', audioBlob, 'recording.webm');
 
-      console.log('Sending audio to API...');
       const response = await fetch('/api/transcribe', {
         method: 'POST',
         body: formData,
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error('API request failed');
+      }
 
       const data = await response.json();
       console.log('API Response:', data);
@@ -92,8 +103,8 @@ export default function ChatBubble() {
       mediaRecorder.stop();
     } else {
       console.log('Starting recording...');
-      setAudioChunks([]);
-      mediaRecorder.start(1000); // Collect data every second
+      audioChunksRef.current = [];
+      mediaRecorder.start(100); // Collect data every 100ms
     }
     setIsRecording(!isRecording);
   };
