@@ -12,10 +12,20 @@ export default function ChatBubble() {
   useEffect(() => {
     const setupMediaRecorder = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const recorder = new MediaRecorder(stream);
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            sampleRate: 44100,
+          }
+        });
+        
+        const recorder = new MediaRecorder(stream, {
+          mimeType: 'audio/webm;codecs=opus'
+        });
         
         recorder.ondataavailable = (e) => {
+          console.log('Data available:', e.data.size);
           if (e.data.size > 0) {
             setAudioChunks(chunks => [...chunks, e.data]);
           }
@@ -23,8 +33,8 @@ export default function ChatBubble() {
 
         recorder.onstop = async () => {
           console.log('Recording stopped');
-          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-          console.log('Audio blob created:', audioBlob);
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          console.log('Audio blob created:', audioBlob.size, audioBlob.type);
           await processAudio(audioBlob);
           setAudioChunks([]);
         };
@@ -41,10 +51,15 @@ export default function ChatBubble() {
   const processAudio = async (audioBlob: Blob) => {
     try {
       setIsProcessing(true);
-      console.log('Starting audio processing...');
+      console.log('Starting audio processing...', audioBlob.size);
+      
+      // For testing: Play the recorded audio
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      audio.play();
       
       const formData = new FormData();
-      formData.append('audio', audioBlob);
+      formData.append('audio', audioBlob, 'audio.webm');
 
       console.log('Sending audio to API...');
       const response = await fetch('/api/transcribe', {
@@ -57,7 +72,6 @@ export default function ChatBubble() {
       
       if (data.responseText) {
         console.log('AI Response:', data.responseText);
-        // Use speech synthesis to speak the response
         const utterance = new SpeechSynthesisUtterance(data.responseText);
         utterance.rate = 1.0;
         utterance.pitch = 1.0;
@@ -79,7 +93,7 @@ export default function ChatBubble() {
     } else {
       console.log('Starting recording...');
       setAudioChunks([]);
-      mediaRecorder.start();
+      mediaRecorder.start(1000); // Collect data every second
     }
     setIsRecording(!isRecording);
   };
@@ -112,9 +126,16 @@ export default function ChatBubble() {
           ease: "easeInOut"
         }}
         style={{
-          background: 'radial-gradient(circle at center, #FFFFFF, #93C5FD)'
+          background: isRecording 
+            ? 'radial-gradient(circle at center, #FFF, #EF4444)' 
+            : 'radial-gradient(circle at center, #FFFFFF, #93C5FD)'
         }}
       />
+
+      {/* Status text */}
+      <div className="absolute bottom-[-2rem] left-1/2 transform -translate-x-1/2 text-white text-sm">
+        {isRecording ? 'Recording...' : isProcessing ? 'Processing...' : 'Click to start'}
+      </div>
     </div>
   );
 }
