@@ -10,9 +10,12 @@ export default function ChatBubble() {
   const audioChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
+    let stream: MediaStream | null = null;
+
     const setupMediaRecorder = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
+        // Request microphone access
+        stream = await navigator.mediaDevices.getUserMedia({ 
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -20,52 +23,96 @@ export default function ChatBubble() {
           }
         });
         
-        const recorder = new MediaRecorder(stream, {
-          mimeType: 'audio/webm'
-        });
+        // Check if stream is available
+        if (!stream) {
+          throw new Error('No audio stream available');
+        }
+
+        // Create media recorder
+        const recorder = new MediaRecorder(stream);
+        console.log('MediaRecorder created with mimeType:', recorder.mimeType);
         
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            audioChunksRef.current.push(e.data);
-            console.log('Chunk added:', e.data.size);
+        // Handle data available event
+        recorder.ondataavailable = (event) => {
+          try {
+            if (event.data.size > 0) {
+              audioChunksRef.current.push(event.data);
+              console.log('Audio chunk received:', event.data.size, 'bytes');
+            }
+          } catch (error) {
+            console.error('Error in ondataavailable:', error);
           }
         };
 
+        // Handle recording stop
         recorder.onstop = async () => {
-          console.log('Recording stopped');
-          console.log('Number of chunks:', audioChunksRef.current.length);
-          
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          console.log('Final blob size:', audioBlob.size);
-          
-          // Test playback
-          const url = URL.createObjectURL(audioBlob);
-          const audio = new Audio(url);
-          audio.onloadedmetadata = () => {
-            console.log('Audio duration:', audio.duration);
-          };
-          audio.play();
+          try {
+            console.log('Recording stopped, processing chunks...');
+            console.log('Number of chunks:', audioChunksRef.current.length);
 
-          await processAudio(audioBlob);
-          audioChunksRef.current = [];
+            if (audioChunksRef.current.length === 0) {
+              throw new Error('No audio data collected');
+            }
+
+            const audioBlob = new Blob(audioChunksRef.current, { 
+              type: recorder.mimeType 
+            });
+
+            console.log('Audio blob created:', {
+              size: audioBlob.size,
+              type: audioBlob.type
+            });
+
+            if (audioBlob.size === 0) {
+              throw new Error('Created audio blob is empty');
+            }
+
+            // Test audio playback
+            try {
+              const url = URL.createObjectURL(audioBlob);
+              const audio = new Audio(url);
+              audio.onerror = (e) => console.error('Audio playback error:', e);
+              await audio.play();
+              console.log('Audio playback started');
+            } catch (playError) {
+              console.error('Audio playback failed:', playError);
+            }
+
+            await processAudio(audioBlob);
+          } catch (error) {
+            console.error('Error in onstop handler:', error);
+          } finally {
+            audioChunksRef.current = [];
+          }
         };
 
         setMediaRecorder(recorder);
-      } catch (err) {
-        console.error('Error accessing microphone:', err);
+        console.log('MediaRecorder setup completed');
+      } catch (error) {
+        console.error('Error in setupMediaRecorder:', error);
       }
     };
 
     setupMediaRecorder();
+
+    // Cleanup
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
   }, []);
 
   const processAudio = async (audioBlob: Blob) => {
     try {
       setIsProcessing(true);
-      console.log('Processing audio blob:', audioBlob.size, audioBlob.type);
-      
+      console.log('Starting audio processing:', {
+        blobSize: audioBlob.size,
+        blobType: audioBlob.type
+      });
+
       const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.webm');
+      formData.append('audio', audioBlob);
 
       const response = await fetch('/api/transcribe', {
         method: 'POST',
@@ -74,39 +121,47 @@ export default function ChatBubble() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('API Error Response:', errorText);
-        throw new Error('API request failed');
+        throw new Error(`API request failed: ${errorText}`);
       }
 
       const data = await response.json();
       console.log('API Response:', data);
-      
+
       if (data.responseText) {
-        console.log('AI Response:', data.responseText);
         const utterance = new SpeechSynthesisUtterance(data.responseText);
         utterance.rate = 1.0;
         utterance.pitch = 1.0;
         window.speechSynthesis.speak(utterance);
       }
     } catch (error) {
-      console.error('Error processing audio:', error);
+      console.error('Error in processAudio:', error);
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleBubbleClick = () => {
-    if (!mediaRecorder || isProcessing) return;
-
-    if (isRecording) {
-      console.log('Stopping recording...');
-      mediaRecorder.stop();
-    } else {
-      console.log('Starting recording...');
-      audioChunksRef.current = [];
-      mediaRecorder.start(100); // Collect data every 100ms
+    if (!mediaRecorder || isProcessing) {
+      console.log('Cannot start/stop recording:', {
+        mediaRecorderExists: !!mediaRecorder,
+        isProcessing
+      });
+      return;
     }
-    setIsRecording(!isRecording);
+
+    try {
+      if (isRecording) {
+        console.log('Stopping recording...');
+        mediaRecorder.stop();
+      } else {
+        console.log('Starting recording...');
+        audioChunksRef.current = [];
+        mediaRecorder.start(100);
+      }
+      setIsRecording(!isRecording);
+    } catch (error) {
+      console.error('Error in handleBubbleClick:', error);
+    }
   };
 
   return (
